@@ -63,6 +63,7 @@ if [ "$FS_TYPE" = "erofs" ]; then
         -z lz4hc \
         -b 4096 \
         -T 1199145600 \
+        -E ^xattr-name-filter \
         "$OUT_IMG" "$SOURCE_DIR"
 
     if command -v fsck.erofs >/dev/null 2>&1; then
