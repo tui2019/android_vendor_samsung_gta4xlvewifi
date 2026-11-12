@@ -2356,3 +2356,7 @@
 /vendor/lib64/libdualcapture\.so u:object_r:vendor_file:s0
 /vendor/etc/selinux/vendor_sepolicy_version u:object_r:vendor_configs_file:s0
 /vendor/lib64/libcolor-default\.so u:object_r:vendor_file:s0
+/vendor/lib64/libpadm\.so u:object_r:vendor_file:s0
+/vendor/lib64/libswregistrationalgo\.so u:object_r:vendor_file:s0
+/vendor/lib64/hw/gralloc\.atoll\.so u:object_r:same_process_hal_file:s0
+/vendor/lib64/hw/com\.samsung\.chi\.override\.so u:object_r:vendor_file:s0

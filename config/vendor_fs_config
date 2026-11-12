@@ -1592,6 +1592,7 @@ vendor/lib64/hw/audio.r_submix.default.so 0 0 0644
 vendor/lib64/hw/audio.usb.default.so 0 0 0644
 vendor/lib64/hw/camera.qcom.so 0 0 0644
 vendor/lib64/hw/camera.unihal.default.so 0 0 0644
+vendor/lib64/hw/gralloc.atoll.so 0 0 0644
 vendor/lib64/hw/com.samsung.chi.override.so 0 0 0644
 vendor/lib64/hw/gatekeeper.mdfpp.so 0 0 0644
 vendor/lib64/hw/gralloc.default.so 0 0 0644
@@ -2366,3 +2367,5 @@ vendor/lib64/libcom.qti.chinodeutils.so 0 0 0644
 vendor/lib64/libdualcapture.so 0 0 0644
 vendor/etc/selinux/vendor_sepolicy_version 0 0 0644
 vendor/lib64/libcolor-default.so 0 0 0644
+vendor/lib64/libpadm.so 0 0 0644
+vendor/lib64/libswregistrationalgo.so 0 0 0644
