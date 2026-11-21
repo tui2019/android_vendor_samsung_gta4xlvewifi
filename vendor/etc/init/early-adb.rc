@@ -1,12 +1,9 @@
-on early-init
-    setprop ro.debuggable 1
-    setprop ro.adb.secure 0
-    setprop ro.secure 0
-    setprop persist.sys.usb.config adb
-    setprop sys.usb.config adb
-    start adbd
+# Open default USB ADB for mainline Linux 7.3 bringup.
+# Do NOT start adbd in early-init before init.qcom.usb.rc mounts /dev/usb-ffs/adb,
+# or adbd fails to bind FunctionFS and /config/usb_gadget/g1/UDC stays empty.
 
-on boot
-    setprop sys.usb.configfs 1
+on post-fs-data
+    setprop persist.sys.usb.config adb
+
+on property:sys.usb.configfs=1 && property:sys.usb.config=none
     setprop sys.usb.config adb
-    start adbd
