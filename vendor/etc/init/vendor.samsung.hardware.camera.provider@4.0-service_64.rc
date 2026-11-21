@@ -1,8 +1,9 @@
+# Mainline 7.3: disabled (4.14 CamX aborts without downstream cam-req-mgr; interface lines commented out so hwservicemanager cannot lazy-start it in a crash loop)
 service sec-camera-provider-4-0 /vendor/bin/hw/vendor.samsung.hardware.camera.provider@4.0-service_64
-    interface vendor.samsung.hardware.camera.provider@4.0::ISehCameraProvider legacy/0
-    interface android.hardware.camera.provider@2.6::ICameraProvider legacy/0
-    interface android.hardware.camera.provider@2.5::ICameraProvider legacy/0
-    interface android.hardware.camera.provider@2.4::ICameraProvider legacy/0
+    # interface vendor.samsung.hardware.camera.provider@4.0::ISehCameraProvider legacy/0
+    # interface android.hardware.camera.provider@2.6::ICameraProvider legacy/0
+    # interface android.hardware.camera.provider@2.5::ICameraProvider legacy/0
+    # interface android.hardware.camera.provider@2.4::ICameraProvider legacy/0
     class hal
     user cameraserver
     group audio camera input drmrpc system media_rw sdcard_rw media vendor_secdir

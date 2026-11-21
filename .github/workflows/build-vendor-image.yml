@@ -303,14 +303,15 @@ jobs:
           def add_entry(rel, mode, uid, gid, ctx):
               key = f"vendor/{rel}"
               fs_entries[key] = f"{key} {uid} {gid} {mode}"
-              fc_key = "/" + key.replace(".", r"\.")
+              fc_key = "/" + re.escape(key)
               if fc_key not in fc_existing:
                   fc_lines.append(f"{fc_key} {ctx}")
                   fc_existing.add(fc_key)
 
-          # Composer 2.4 service + rc
+          # Composer 2.4 service + rc & Thermal AIDL service (ensure 0755 executable)
           add_entry("bin/hw/android.hardware.graphics.composer@2.4-service", "0755", 0, 2000, "u:object_r:hal_graphics_composer_default_exec:s0")
           add_entry("etc/init/android.hardware.graphics.composer@2.4-service.rc", "0644", 0, 0, "u:object_r:vendor_configs_file:s0")
+          add_entry("bin/hw/android.hardware.thermal-service.qti", "0755", 0, 2000, "u:object_r:hal_thermal_default_exec:s0")
 
           # Firmware dirs & symlinks
           for d in ("firmware/qcom", "firmware/qca"):
@@ -335,20 +336,27 @@ jobs:
                   if Path("vendor", rel).exists():
                       add_entry(rel, "0644", 0, 0, "u:object_r:same_process_hal_file:s0")
 
-          # Catch any other newly generated files inside vendor/
+          # Catch any other newly generated or unindexed files inside vendor/
           for dirpath, dirnames, filenames in os.walk("vendor"):
               for name in dirnames + filenames:
                   full = Path(dirpath) / name
                   rel = full.relative_to("vendor").as_posix()
                   key = f"vendor/{rel}"
+                  fc_key = "/" + re.escape(key)
                   if key not in fs_entries:
                       if full.is_symlink():
                           add_entry(rel, "0644", 0, 0, "u:object_r:vendor_file:s0")
                       elif full.is_dir():
                           add_entry(rel, "0755", 0, 2000, "u:object_r:vendor_file:s0")
+                      elif rel.startswith("bin/"):
+                          add_entry(rel, "0755", 0, 2000, "u:object_r:vendor_file:s0")
                       else:
                           ctx = "u:object_r:same_process_hal_file:s0" if name.endswith(".so") else "u:object_r:vendor_file:s0"
                           add_entry(rel, "0644", 0, 0, ctx)
+                  elif fc_key not in fc_existing:
+                      ctx = "u:object_r:vendor_configs_file:s0" if rel.startswith("etc/") else "u:object_r:vendor_file:s0"
+                      fc_lines.append(f"{fc_key} {ctx}")
+                      fc_existing.add(fc_key)
 
           fs_path.write_text(eol.join(fs_entries.values()) + eol)
           fc_path.write_text("\n".join(fc_lines) + "\n")

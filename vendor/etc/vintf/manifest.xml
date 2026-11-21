@@ -31,7 +31,7 @@
     <hal format="hidl">
         <name>android.hardware.media.c2</name>
         <transport>hwbinder</transport>
-        <fqname>@1.0::IComponentStore/default</fqname>
+        <!-- Mainline 7.3: QTI 4.14 Venus c2@1.0/default is disabled; keeping it in VINTF deadlocks media.swcodec & StorageManagerService (blocking /storage/emulated/0 FUSE mount) -->
         <fqname>@1.2::IComponentStore/default1</fqname>
     </hal>
     <hal format="hidl">
