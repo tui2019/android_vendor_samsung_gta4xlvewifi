@@ -328,13 +328,13 @@ jobs:
               "bin/mdt_stitch",
               "bin/rmtfs",
               "bin/tqftpserv",
-              "bin/qrtr-lookup",
               "bin/hexagonrpcd",
               "bin/p613-mainline-setup.sh",
               "bin/p613-modem-boot.sh",
           ):
-              add_entry(b, "0755", 0, 2000, "u:object_r:vendor_file:s0")
-          add_entry("bin/hw/android.hardware.bluetooth-service.mainline", "0755", 0, 2000, "u:object_r:hal_bluetooth_default_exec:s0")
+              add_entry(b, "0755", 0, 2000, "u:object_r:p613_mainline_exec:s0")
+          add_entry("bin/qrtr-lookup", "0755", 0, 2000, "u:object_r:vendor_file:s0")
+          add_entry("bin/hw/android.hardware.bluetooth-service.mainline", "0755", 0, 2000, "u:object_r:hal_bluetooth_btlinux_exec:s0")
           add_entry("lib64/hw/audio.primary.atoll.so", "0644", 0, 0, "u:object_r:vendor_file:s0")
           add_entry("etc/init/p613-mainline.rc", "0644", 0, 0, "u:object_r:vendor_configs_file:s0")
           add_entry("etc/vintf/manifest/bluetooth_aidl.xml", "0644", 0, 0, "u:object_r:vendor_configs_file:s0")

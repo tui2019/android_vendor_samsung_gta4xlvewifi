@@ -2,7 +2,7 @@
 
 on post-fs-data
     setprop persist.bluetooth.a2dp_offload.disabled true
-    exec u:r:vendor_init:s0 -- /vendor/bin/p613-mainline-setup.sh
+    exec u:r:p613_mainline:s0 -- /vendor/bin/p613-mainline-setup.sh
     start p613_hexagonrpcd
     start p613_tqftpserv
     start p613_rmtfs
@@ -11,16 +11,19 @@ service p613_hexagonrpcd /vendor/bin/hexagonrpcd -f /dev/fastrpc-adsp -d adsp -s
     class core
     user root
     group root system
+    seclabel u:r:p613_mainline:s0
 
 service p613_tqftpserv /vendor/bin/tqftpserv
     class core
     user root
     group root system
+    seclabel u:r:p613_mainline:s0
 
 service p613_rmtfs /vendor/bin/rmtfs -P -o /dev/block/by-name -r
     class core
     user root
     group root system
+    seclabel u:r:p613_mainline:s0
 
 service p613_bt_aidl /vendor/bin/hw/android.hardware.bluetooth-service.mainline
     interface aidl android.hardware.bluetooth.IBluetoothHci/default
@@ -28,9 +31,11 @@ service p613_bt_aidl /vendor/bin/hw/android.hardware.bluetooth-service.mainline
     user root
     group bluetooth system wakelock net_admin net_raw
     capabilities BLOCK_SUSPEND NET_ADMIN
+    seclabel u:r:hal_bluetooth_btlinux:s0
 
 service p613_modem_boot /vendor/bin/p613-modem-boot.sh
     class late_start
     user root
     group root system net_admin
+    seclabel u:r:p613_mainline:s0
     oneshot
