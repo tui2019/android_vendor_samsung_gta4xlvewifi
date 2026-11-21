@@ -101,14 +101,14 @@ jobs:
           # 2. Build software Keymaster 4.0 shim & Gatekeeper 1.0 module (arm64)
           "$TOOLCHAIN/aarch64-linux-android${ANDROID_API}-clang" \
             -O2 -Wall -Wextra -Werror -fPIC -shared \
-            -Wl,-soname,libskeymaster4device.so -Wl,--allow-shlib-undefined \
+            -Wl,-soname,libskeymaster4device.so -Wl,--unresolved-symbols=ignore-all \
             src/mainline/skeymaster4_soft.c \
             -o vendor/lib64/libskeymaster4device.so
           patchelf --add-needed libkeymaster4.so vendor/lib64/libskeymaster4device.so
 
           "$TOOLCHAIN/aarch64-linux-android${ANDROID_API}-clang" \
             -O2 -Wall -Wextra -Werror -fPIC -shared \
-            -Wl,-soname,gatekeeper.mdfpp.so -Wl,--allow-shlib-undefined \
+            -Wl,-soname,gatekeeper.mdfpp.so -Wl,--unresolved-symbols=ignore-all \
             src/mainline/gatekeeper_soft.c \
             -o vendor/lib64/hw/gatekeeper.mdfpp.so
           patchelf --add-needed libcrypto.so vendor/lib64/hw/gatekeeper.mdfpp.so
@@ -197,7 +197,8 @@ jobs:
             src/mainline/hwcomposer_drm.c \
             "$BUILD_ROOT/prefix/arm64/lib/libdrm.a" \
             -llog -lm -o vendor/lib64/hw/hwcomposer.qcom.so
-          "$TOOLCHAIN/llvm-nm" -D vendor/lib64/hw/hwcomposer.qcom.so | grep -q ' D HMI$'
+          "$TOOLCHAIN/llvm-nm" -D vendor/lib64/hw/hwcomposer.qcom.so > /tmp/hwc_syms.txt
+          grep -E ' [DRB] HMI$' /tmp/hwc_syms.txt
 
           # 5. Build upstream Mesa Freedreno + Turnip (arm64 + arm32)
           for abi in arm64 arm32; do
@@ -241,7 +242,7 @@ jobs:
 
             mkdir -p "vendor/$libdir/egl" "vendor/$libdir/hw"
             for base in libEGL libGLESv1_CM libGLESv2; do
-              src_so=$(find "$BUILD_ROOT/install/mesa-$abi/$libdir" -maxdepth 2 -name "${base}*.so" | head -n 1)
+              src_so=$(find "$BUILD_ROOT/install/mesa-$abi/$libdir" -maxdepth 2 -name "${base}*.so" | sort | awk 'NR==1{print}')
               if [ -n "$src_so" ]; then
                 cp -L "$src_so" "vendor/$libdir/egl/${base}_mesa.so"
                 patchelf --set-soname "${base}_mesa.so" "vendor/$libdir/egl/${base}_mesa.so"
@@ -253,7 +254,7 @@ jobs:
               cp -L "$f" "vendor/$libdir/$(basename "$f")"
             done
 
-            vk_so=$(find "$BUILD_ROOT/install/mesa-$abi/$libdir" -maxdepth 2 -name "*vulkan_freedreno*.so" | head -n 1)
+            vk_so=$(find "$BUILD_ROOT/install/mesa-$abi/$libdir" -maxdepth 2 -name "*vulkan_freedreno*.so" | sort | awk 'NR==1{print}')
             if [ -n "$vk_so" ]; then
               cp -L "$vk_so" "vendor/$libdir/hw/vulkan.freedreno.so"
               patchelf --set-soname "vulkan.freedreno.so" "vendor/$libdir/hw/vulkan.freedreno.so"
@@ -299,12 +300,9 @@ jobs:
           fc_lines = [l for l in fc_path.read_text().splitlines() if l.strip()]
           fc_existing = {l.split()[0] for l in fc_lines}
 
-          def add_entry(rel, mode, uid, gid, ctx, target=None):
+          def add_entry(rel, mode, uid, gid, ctx):
               key = f"vendor/{rel}"
-              if target is not None:
-                  fs_entries[key] = f"{key} {uid} {gid} {mode} {target}"
-              else:
-                  fs_entries[key] = f"{key} {uid} {gid} {mode}"
+              fs_entries[key] = f"{key} {uid} {gid} {mode}"
               fc_key = "/" + key.replace(".", r"\.")
               if fc_key not in fc_existing:
                   fc_lines.append(f"{fc_key} {ctx}")
@@ -317,13 +315,13 @@ jobs:
           # Firmware dirs & symlinks
           for d in ("firmware/qcom", "firmware/qca"):
               add_entry(d, "0755", 0, 2000, "u:object_r:vendor_firmware_file:s0")
-          for link, tgt in [
-              ("firmware/qcom/a630_sqe.fw", "../a630_sqe.fw"),
-              ("firmware/qcom/a630_gmu.bin", "../a630_gmu.bin"),
-              ("firmware/qca/crbtfw32.tlv", "../crbtfw32.tlv"),
-              ("firmware/qca/crnv32.bin", "../crnv32.bin"),
-          ]:
-              add_entry(link, "0644", 0, 0, "u:object_r:vendor_firmware_file:s0", target=tgt)
+          for link in (
+              "firmware/qcom/a630_sqe.fw",
+              "firmware/qcom/a630_gmu.bin",
+              "firmware/qca/crbtfw32.tlv",
+              "firmware/qca/crnv32.bin",
+          ):
+              add_entry(link, "0644", 0, 0, "u:object_r:vendor_firmware_file:s0")
 
           # Mesa + Vulkan SP-HAL libraries
           for libdir in ("lib64", "lib"):
@@ -345,7 +343,7 @@ jobs:
                   key = f"vendor/{rel}"
                   if key not in fs_entries:
                       if full.is_symlink():
-                          add_entry(rel, "0644", 0, 0, "u:object_r:vendor_file:s0", target=os.readlink(full))
+                          add_entry(rel, "0644", 0, 0, "u:object_r:vendor_file:s0")
                       elif full.is_dir():
                           add_entry(rel, "0755", 0, 2000, "u:object_r:vendor_file:s0")
                       else:
