@@ -31,6 +31,9 @@ ln -sf /vendor/firmware-modem/image/modem_pr "$FW_DEV/modem_pr"
 [ -f "$FW_ROOT/qcom/a630_sqe.fw" ] || cp -f /vendor/firmware/a630_sqe.fw /vendor/firmware/a630_gmu.bin "$FW_ROOT/qcom/" 2>/dev/null
 [ -f "$FW_ROOT/regulatory.db" ] || cp -f /vendor/firmware/regulatory.db /vendor/firmware/regulatory.db.p7s "$FW_ROOT/" 2>/dev/null
 
+# Relabel stitched firmware so enforcing kernel_202604 can read it cleanly
+chcon -R u:object_r:vendor_firmware_file:s0 "$FW_ROOT" 2>/dev/null || true
+
 # Point kernel firmware loader to stitched directory
 echo -n "$FW_ROOT" > /sys/module/firmware_class/parameters/path
 

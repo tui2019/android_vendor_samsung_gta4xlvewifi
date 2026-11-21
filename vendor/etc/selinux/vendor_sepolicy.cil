@@ -24268,3 +24268,6 @@
 (allow hal_light_default sysfs_leds_202604 (dir (read open search getattr)))
 (allow hal_light_default sysfs_leds_202604 (file (read write open getattr)))
 (allow vold_202604 cache_recovery_file_202604 (dir (search)))
+(allow kernel_202604 vendor_data_file_202604 (dir (search read open getattr)))
+(allow kernel_202604 vendor_data_file_202604 (file (read open getattr)))
+(allow kernel_202604 vendor_data_file_202604 (lnk_file (read getattr)))

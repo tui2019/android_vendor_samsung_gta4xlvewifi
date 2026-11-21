@@ -1124,3 +1124,4 @@
 /vendor/bin/rmtfs                                           u:object_r:p613_mainline_exec:s0
 /vendor/bin/tqftpserv                                       u:object_r:p613_mainline_exec:s0
 /vendor/bin/mdt_stitch                                      u:object_r:p613_mainline_exec:s0
+/data/vendor/firmware(/.*)?                                 u:object_r:vendor_firmware_file:s0
