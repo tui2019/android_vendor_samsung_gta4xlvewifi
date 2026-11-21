@@ -300,10 +300,13 @@ jobs:
           fc_lines = [l for l in fc_path.read_text().splitlines() if l.strip()]
           fc_existing = {l.split()[0] for l in fc_lines}
 
+          def esc_fc(key):
+              return "/" + re.sub(r"([.^$*+?{}\[\]|()\\])", r"\\\1", key)
+
           def add_entry(rel, mode, uid, gid, ctx):
               key = f"vendor/{rel}"
               fs_entries[key] = f"{key} {uid} {gid} {mode}"
-              fc_key = "/" + re.escape(key)
+              fc_key = esc_fc(key)
               if fc_key not in fc_existing:
                   fc_lines.append(f"{fc_key} {ctx}")
                   fc_existing.add(fc_key)
@@ -342,7 +345,7 @@ jobs:
                   full = Path(dirpath) / name
                   rel = full.relative_to("vendor").as_posix()
                   key = f"vendor/{rel}"
-                  fc_key = "/" + re.escape(key)
+                  fc_key = esc_fc(key)
                   if key not in fs_entries:
                       if full.is_symlink():
                           add_entry(rel, "0644", 0, 0, "u:object_r:vendor_file:s0")
