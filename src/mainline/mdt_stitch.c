@@ -120,12 +120,33 @@ int main(int argc, char **argv) {
             p_flags = ph->p_flags;
         }
         if (p_filesz == 0) continue;
-        if ((p_flags & QCOM_MDT_TYPE_MASK) == QCOM_MDT_TYPE_HASH) continue;
 
         char seg_path[528];
         snprintf(seg_path, sizeof(seg_path), "%s.b%02u", base, (unsigned)i);
         int sfd = open(seg_path, O_RDONLY);
-        if (sfd < 0) continue;
+        if (sfd < 0) {
+            /* Fallback: if hash segment .bXX is missing, copy from packed .mdt tail */
+            if ((p_flags & QCOM_MDT_TYPE_MASK) == QCOM_MDT_TYPE_HASH && p_off > 0) {
+                uint64_t ehdr_sz = 0;
+                if (is64) {
+                    const Elf64_Phdr *ph0 = (const Elf64_Phdr *)(mdt + phoff);
+                    ehdr_sz = ph0->p_filesz;
+                } else {
+                    const Elf32_Phdr *ph0 = (const Elf32_Phdr *)(mdt + phoff);
+                    ehdr_sz = ph0->p_filesz;
+                }
+                if (ehdr_sz + p_filesz <= (uint64_t)st.st_size) {
+                    if (lseek(out_fd, (off_t)p_off, SEEK_SET) < 0 ||
+                        write(out_fd, mdt + ehdr_sz, (size_t)p_filesz) != (ssize_t)p_filesz) {
+                        close(out_fd);
+                        unlink(tmp_path);
+                        free(mdt);
+                        return 1;
+                    }
+                }
+            }
+            continue;
+        }
         if (copy_fd(sfd, out_fd, (off_t)p_off, (size_t)p_filesz) < 0) {
             fprintf(stderr, "mdt_stitch: failed copying %s\n", seg_path);
             close(sfd);

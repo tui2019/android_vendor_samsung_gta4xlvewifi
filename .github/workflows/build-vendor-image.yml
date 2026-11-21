@@ -279,12 +279,13 @@ jobs:
             vendor/lib64/hw/gatekeeper.mdfpp.so \
             vendor/lib64/hw/hwcomposer.qcom.so
 
-          # 6. Create mainline firmware path symlinks inside vendor/firmware/{qcom,qca}
-          mkdir -p vendor/firmware/qcom vendor/firmware/qca
+          # 6. Create mainline firmware path symlinks & mountpoint inside vendor/firmware/{qcom,qca,ath10k}
+          mkdir -p vendor/firmware/qcom/sm7125/Samsung/gta4xlvewifi vendor/firmware/qca vendor/firmware/ath10k/WCN3990/hw1.0
           ln -sf ../a630_sqe.fw vendor/firmware/qcom/a630_sqe.fw
           ln -sf ../a630_gmu.bin vendor/firmware/qcom/a630_gmu.bin
           ln -sf ../crbtfw32.tlv vendor/firmware/qca/crbtfw32.tlv
           ln -sf ../crnv32.bin vendor/firmware/qca/crnv32.bin
+          ln -sf ../../../wlan/qca_cld/bdwlan.bin vendor/firmware/ath10k/WCN3990/hw1.0/board.bin
 
           # 7. Sync config/vendor_fs_config and config/vendor_file_contexts for every new/built file
           python3 - <<'PY'

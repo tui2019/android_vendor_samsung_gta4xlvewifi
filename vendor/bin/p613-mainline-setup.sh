@@ -1,40 +1,50 @@
 #!/vendor/bin/sh
-# Prepare mainline 7.3 stitched firmware, HexagonFS for ADSP sensorspd,
-# and boot ADSP/CDSP + rebind WCN3991 Bluetooth early before HALs start.
+# Prepare mainline 7.3 stitched firmware under /vendor/firmware (tmpfs with
+# vendor_firmware_file context so SELinux-enforcing kernel_202604 never has to
+# traverse /data system_data_root_file), HexagonFS for ADSP sensorspd,
+# pre-authorized bringup ADB key, and boot ADSP/CDSP + rebind WCN3991 BT.
 
-FW_ROOT=/data/vendor/firmware
+FW_ROOT=/vendor/firmware
 FW_DEV=$FW_ROOT/qcom/sm7125/Samsung/gta4xlvewifi
 
-mkdir -p "$FW_DEV" "$FW_ROOT/ath10k/WCN3990/hw1.0" "$FW_ROOT/qca" "$FW_ROOT/qcom" /data/vendor/tmp/tqftpserv
-chmod 0755 "$FW_ROOT" "$FW_ROOT/qcom" "$FW_ROOT/qcom/sm7125" "$FW_ROOT/qcom/sm7125/Samsung" "$FW_DEV" \
-           "$FW_ROOT/ath10k" "$FW_ROOT/ath10k/WCN3990" "$FW_ROOT/ath10k/WCN3990/hw1.0" "$FW_ROOT/qca"
+mkdir -p /data/vendor/tmp/tqftpserv
 chmod 0777 /data/vendor/tmp/tqftpserv
 
-# Stitch Qualcomm split ELF (.mdt + .bXX) into monolithic .mbn once (survives factory reset)
+# Pre-authorize bringup host ADB key so USB ADB connects unlocked on user builds
+if [ -f /vendor/etc/p613_adb_keys ]; then
+    mkdir -p /data/misc/adb
+    chown 1000:2000 /data/misc/adb
+    chmod 2750 /data/misc/adb
+    cp -f /vendor/etc/p613_adb_keys /data/misc/adb/adb_keys
+    chown 1000:2000 /data/misc/adb/adb_keys
+    chmod 0640 /data/misc/adb/adb_keys
+    chcon u:object_r:adb_keys_file:s0 /data/misc/adb /data/misc/adb/adb_keys 2>/dev/null || true
+fi
+
+# Mount tmpfs with firmware_file context (already contextmount_type with filesystem:associate)
+if ! grep -q " $FW_DEV " /proc/mounts 2>/dev/null; then
+    mount -t tmpfs -o mode=0755,size=160M,context=u:object_r:firmware_file:s0 tmpfs "$FW_DEV" 2>/dev/kmsg || echo "<3>p613-setup: tmpfs mount failed on $FW_DEV" > /dev/kmsg
+fi
+
+# Stitch Qualcomm split ELF (.mdt + .bXX) into monolithic .mbn inside $FW_DEV
 for fw in adsp cdsp ipa_fws venus a615_zap; do
     if [ ! -s "$FW_DEV/${fw}.mbn" ] && [ -f "/vendor/firmware_mnt/image/${fw}.mdt" ]; then
-        /vendor/bin/mdt_stitch "/vendor/firmware_mnt/image/${fw}.mdt" "$FW_DEV/${fw}.mbn"
+        /vendor/bin/mdt_stitch "/vendor/firmware_mnt/image/${fw}.mdt" "$FW_DEV/${fw}.mbn" 2>/dev/kmsg
     fi
 done
 if [ ! -s "$FW_DEV/modem.mbn" ] && [ -f "/vendor/firmware-modem/image/modem.mdt" ]; then
-    /vendor/bin/mdt_stitch "/vendor/firmware-modem/image/modem.mdt" "$FW_DEV/modem.mbn"
+    /vendor/bin/mdt_stitch "/vendor/firmware-modem/image/modem.mdt" "$FW_DEV/modem.mbn" 2>/dev/kmsg
 fi
 
-# Symlink/copy remaining mainline firmware files
+# Symlink/copy remaining per-device firmware files into $FW_DEV
 ln -sf /vendor/firmware-modem/image/modem_pr "$FW_DEV/modem_pr"
 [ -f "$FW_DEV/wlanmdsp.mbn" ] || cp -f /vendor/firmware/wlanmdsp.mbn "$FW_DEV/wlanmdsp.mbn" 2>/dev/null
 [ -f "$FW_DEV/Data.msc" ] || cp -f /vendor/firmware/Data.msc "$FW_DEV/Data.msc" 2>/dev/null
 [ -f "$FW_DEV/bdwlan.bin" ] || cp -f /vendor/firmware/wlan/qca_cld/bdwlan.bin "$FW_DEV/bdwlan.bin" 2>/dev/null
-[ -f "$FW_ROOT/ath10k/WCN3990/hw1.0/firmware-5.bin" ] || cp -f /vendor/firmware/ath10k/WCN3990/hw1.0/firmware-5.bin "$FW_ROOT/ath10k/WCN3990/hw1.0/firmware-5.bin" 2>/dev/null
-[ -f "$FW_ROOT/ath10k/WCN3990/hw1.0/board.bin" ] || cp -f /vendor/firmware/wlan/qca_cld/bdwlan.bin "$FW_ROOT/ath10k/WCN3990/hw1.0/board.bin" 2>/dev/null
-[ -f "$FW_ROOT/qca/crbtfw32.tlv" ] || cp -f /vendor/firmware/crbtfw32.tlv /vendor/firmware/crnv32.bin /vendor/firmware/crnv32u.bin "$FW_ROOT/qca/" 2>/dev/null
-[ -f "$FW_ROOT/qcom/a630_sqe.fw" ] || cp -f /vendor/firmware/a630_sqe.fw /vendor/firmware/a630_gmu.bin "$FW_ROOT/qcom/" 2>/dev/null
-[ -f "$FW_ROOT/regulatory.db" ] || cp -f /vendor/firmware/regulatory.db /vendor/firmware/regulatory.db.p7s "$FW_ROOT/" 2>/dev/null
 
-# Relabel stitched firmware so enforcing kernel_202604 can read it cleanly
-chcon -R u:object_r:vendor_firmware_file:s0 "$FW_ROOT" 2>/dev/null || true
+echo "<6>p613-setup: fw_dev=$(ls "$FW_DEV" 2>/dev/null | tr '\n' ' ')" > /dev/kmsg
 
-# Point kernel firmware loader to stitched directory
+# Point kernel firmware loader to /vendor/firmware
 echo -n "$FW_ROOT" > /sys/module/firmware_class/parameters/path
 
 # Prepare HexagonFS root (/dev/hfs) for ADSP sensorspd (hexagonrpcd)
