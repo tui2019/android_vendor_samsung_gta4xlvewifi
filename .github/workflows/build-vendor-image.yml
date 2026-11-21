@@ -113,6 +113,13 @@ jobs:
             -o vendor/lib64/hw/gatekeeper.mdfpp.so
           patchelf --add-needed libcrypto.so vendor/lib64/hw/gatekeeper.mdfpp.so
 
+          # 2b. Build split-ELF (.mdt + .bXX -> .mbn) firmware stitcher
+          "$TOOLCHAIN/aarch64-linux-android${ANDROID_API}-clang" \
+            -O2 -Wall -Wextra -Werror \
+            src/mainline/mdt_stitch.c \
+            -o vendor/bin/mdt_stitch
+          "$TOOLCHAIN/llvm-strip" --strip-unneeded vendor/bin/mdt_stitch
+
           # 3. Clone & build static libdrm (arm64 + arm32)
           git clone --depth=1 --branch "${LIBDRM_TAG}" https://gitlab.freedesktop.org/mesa/drm.git "$BUILD_ROOT/src/libdrm"
           git clone --depth=1 --branch "${MESA_TAG}" https://gitlab.freedesktop.org/mesa/mesa.git "$BUILD_ROOT/src/mesa"
@@ -316,9 +323,31 @@ jobs:
           add_entry("etc/init/android.hardware.graphics.composer@2.4-service.rc", "0644", 0, 0, "u:object_r:vendor_configs_file:s0")
           add_entry("bin/hw/android.hardware.thermal-service.qti", "0755", 0, 2000, "u:object_r:hal_thermal_default_exec:s0")
 
+          # Mainline 7.3 hardware daemons, Bluetooth AIDL HAL, Audio Primary HAL & scripts
+          for b in (
+              "bin/mdt_stitch",
+              "bin/rmtfs",
+              "bin/tqftpserv",
+              "bin/qrtr-lookup",
+              "bin/hexagonrpcd",
+              "bin/p613-mainline-setup.sh",
+              "bin/p613-modem-boot.sh",
+          ):
+              add_entry(b, "0755", 0, 2000, "u:object_r:vendor_file:s0")
+          add_entry("bin/hw/android.hardware.bluetooth-service.mainline", "0755", 0, 2000, "u:object_r:hal_bluetooth_default_exec:s0")
+          add_entry("lib64/hw/audio.primary.atoll.so", "0644", 0, 0, "u:object_r:vendor_file:s0")
+          add_entry("etc/init/p613-mainline.rc", "0644", 0, 0, "u:object_r:vendor_configs_file:s0")
+          add_entry("etc/vintf/manifest/bluetooth_aidl.xml", "0644", 0, 0, "u:object_r:vendor_configs_file:s0")
+
           # Firmware dirs & symlinks
-          for d in ("firmware/qcom", "firmware/qca"):
+          for d in ("firmware/qcom", "firmware/qca", "firmware/ath10k", "firmware/ath10k/WCN3990", "firmware/ath10k/WCN3990/hw1.0"):
               add_entry(d, "0755", 0, 2000, "u:object_r:vendor_firmware_file:s0")
+          for fwf in (
+              "firmware/ath10k/WCN3990/hw1.0/firmware-5.bin",
+              "firmware/regulatory.db",
+              "firmware/regulatory.db.p7s",
+          ):
+              add_entry(fwf, "0644", 0, 0, "u:object_r:vendor_firmware_file:s0")
           for link in (
               "firmware/qcom/a630_sqe.fw",
               "firmware/qcom/a630_gmu.bin",
