@@ -9,3 +9,4 @@ service sec-camera-provider-4-0 /vendor/bin/hw/vendor.samsung.hardware.camera.pr
     ioprio rt 4
     capabilities SYS_NICE
     task_profiles HighPerformance CameraServiceCapacity
+    disabled

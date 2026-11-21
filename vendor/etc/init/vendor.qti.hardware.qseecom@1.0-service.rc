@@ -1,14 +1,6 @@
-#
-# Copyright (c) 2019 Qualcomm Technologies, Inc.
-# All Rights Reserved.
-# Confidential and Proprietary - Qualcomm Technologies, Inc.
-#
-#
-
-on init
-    start qseecom-service
-
+# Disabled on mainline Linux 7.3 (no /dev/qseecom char device)
 service qseecom-service /vendor/bin/hw/vendor.qti.hardware.qseecom@1.0-service
     class hal
     user system
     group system drmrpc
+    disabled

@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - 202604
+      - 202604-7.3
     paths-ignore:
       - '**.md'
       - '.gitignore'
@@ -30,6 +31,11 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  MESA_TAG: mesa-25.3.6
+  LIBDRM_TAG: libdrm-2.4.124
+  ANDROID_API: 35
+
 jobs:
   build:
     runs-on: ubuntu-24.04
@@ -41,7 +47,317 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends erofs-utils e2fsprogs coreutils
+          sudo apt-get install -y --no-install-recommends \
+            bison build-essential ccache cmake coreutils e2fsprogs erofs-utils \
+            flex git glslang-tools libelf-dev ninja-build patchelf pkg-config \
+            python3-pip unzip wget
+          pip3 install --break-system-packages meson mako packaging pyyaml
+
+      - name: Locate or Download Android NDK
+        if: hashFiles('src/mainline/hwcomposer_drm.c') != ''
+        run: |
+          if [ -d "${ANDROID_NDK_LATEST_HOME:-/nonexistent}/toolchains/llvm/prebuilt/linux-x86_64" ]; then
+            NDK_DIR="$ANDROID_NDK_LATEST_HOME"
+          elif [ -d "/usr/local/lib/android/sdk/ndk" ] && [ -n "$(ls -A /usr/local/lib/android/sdk/ndk)" ]; then
+            NDK_DIR="/usr/local/lib/android/sdk/ndk/$(ls -1 /usr/local/lib/android/sdk/ndk | sort -V | tail -n 1)"
+          else
+            wget -q https://dl.google.com/android/repository/android-ndk-r27c-linux.zip -O /tmp/ndk.zip
+            unzip -q /tmp/ndk.zip -d /tmp/ndk
+            NDK_DIR="/tmp/ndk/android-ndk-r27c"
+          fi
+          echo "NDK_DIR=$NDK_DIR" | tee -a "$GITHUB_ENV"
+
+      - name: Cache ccache (Mesa + libdrm)
+        if: hashFiles('src/mainline/hwcomposer_drm.c') != ''
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ccache
+          key: ${{ runner.os }}-p613-vendor-ccache-${{ env.MESA_TAG }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-p613-vendor-ccache-${{ env.MESA_TAG }}-
+            ${{ runner.os }}-p613-vendor-ccache-
+
+      - name: Build Mainline Linux 7.3 HALs & Mesa Freedreno/Turnip
+        if: hashFiles('src/mainline/hwcomposer_drm.c') != ''
+        run: |
+          set -euo pipefail
+          TOOLCHAIN="$NDK_DIR/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          BUILD_ROOT="/tmp/p613_mainline_build"
+          mkdir -p "$BUILD_ROOT"/{src,cross,prefix/arm64,prefix/arm32,build,install}
+
+          # 1. Build pure-C DMA-BUF Heap libion.so (arm64 + arm32)
+          "$TOOLCHAIN/aarch64-linux-android${ANDROID_API}-clang" \
+            -O2 -Wall -Wextra -Werror -fPIC -shared \
+            -Wl,-soname,libion.so \
+            src/mainline/libion_dmaheap.c \
+            -llog -o vendor/lib64/libion.so
+
+          "$TOOLCHAIN/armv7a-linux-androideabi${ANDROID_API}-clang" \
+            -O2 -Wall -Wextra -Werror -fPIC -shared \
+            -Wl,-soname,libion.so \
+            src/mainline/libion_dmaheap.c \
+            -llog -o vendor/lib/libion.so
+
+          # 2. Build software Keymaster 4.0 shim & Gatekeeper 1.0 module (arm64)
+          "$TOOLCHAIN/aarch64-linux-android${ANDROID_API}-clang" \
+            -O2 -Wall -Wextra -Werror -fPIC -shared \
+            -Wl,-soname,libskeymaster4device.so -Wl,--allow-shlib-undefined \
+            src/mainline/skeymaster4_soft.c \
+            -o vendor/lib64/libskeymaster4device.so
+          patchelf --add-needed libkeymaster4.so vendor/lib64/libskeymaster4device.so
+
+          "$TOOLCHAIN/aarch64-linux-android${ANDROID_API}-clang" \
+            -O2 -Wall -Wextra -Werror -fPIC -shared \
+            -Wl,-soname,gatekeeper.mdfpp.so -Wl,--allow-shlib-undefined \
+            src/mainline/gatekeeper_soft.c \
+            -o vendor/lib64/hw/gatekeeper.mdfpp.so
+          patchelf --add-needed libcrypto.so vendor/lib64/hw/gatekeeper.mdfpp.so
+
+          # 3. Clone & build static libdrm (arm64 + arm32)
+          git clone --depth=1 --branch "${LIBDRM_TAG}" https://gitlab.freedesktop.org/mesa/drm.git "$BUILD_ROOT/src/libdrm"
+          git clone --depth=1 --branch "${MESA_TAG}" https://gitlab.freedesktop.org/mesa/mesa.git "$BUILD_ROOT/src/mesa"
+
+          cat > "$BUILD_ROOT/cross/android-aarch64.ini" << EOF
+          [binaries]
+          ar = '$TOOLCHAIN/llvm-ar'
+          c = ['ccache', '$TOOLCHAIN/aarch64-linux-android${ANDROID_API}-clang']
+          cpp = ['ccache', '$TOOLCHAIN/aarch64-linux-android${ANDROID_API}-clang++', '-static-libstdc++']
+          c_ld = 'lld'
+          cpp_ld = 'lld'
+          strip = '$TOOLCHAIN/llvm-strip'
+          pkgconfig = ['env', 'PKG_CONFIG_LIBDIR=$BUILD_ROOT/prefix/arm64/lib/pkgconfig', '/usr/bin/pkg-config']
+
+          [built-in options]
+          c_args = ['-Wno-error=unused-command-line-argument']
+          cpp_args = ['-Wno-error=unused-command-line-argument', '-Wno-c++11-narrowing', '-fno-exceptions', '-fno-unwind-tables', '-fno-asynchronous-unwind-tables']
+
+          [host_machine]
+          system = 'android'
+          cpu_family = 'aarch64'
+          cpu = 'armv8'
+          endian = 'little'
+          EOF
+
+          cat > "$BUILD_ROOT/cross/android-arm32.ini" << EOF
+          [binaries]
+          ar = '$TOOLCHAIN/llvm-ar'
+          c = ['ccache', '$TOOLCHAIN/armv7a-linux-androideabi${ANDROID_API}-clang']
+          cpp = ['ccache', '$TOOLCHAIN/armv7a-linux-androideabi${ANDROID_API}-clang++', '-static-libstdc++']
+          c_ld = 'lld'
+          cpp_ld = 'lld'
+          strip = '$TOOLCHAIN/llvm-strip'
+          pkgconfig = ['env', 'PKG_CONFIG_LIBDIR=$BUILD_ROOT/prefix/arm32/lib/pkgconfig', '/usr/bin/pkg-config']
+
+          [built-in options]
+          c_args = ['-Wno-error=unused-command-line-argument']
+          cpp_args = ['-Wno-error=unused-command-line-argument', '-Wno-c++11-narrowing', '-fno-exceptions', '-fno-unwind-tables', '-fno-asynchronous-unwind-tables']
+
+          [host_machine]
+          system = 'android'
+          cpu_family = 'arm'
+          cpu = 'armv7a'
+          endian = 'little'
+          EOF
+
+          export CCACHE_DIR="$HOME/.cache/ccache"
+          ccache --max-size=2G
+
+          for abi in arm64 arm32; do
+            cf="$BUILD_ROOT/cross/android-aarch64.ini"
+            [ "$abi" = "arm32" ] && cf="$BUILD_ROOT/cross/android-arm32.ini"
+            mkdir -p "$BUILD_ROOT/prefix/$abi/lib/pkgconfig"
+            cat > "$BUILD_ROOT/prefix/$abi/lib/pkgconfig/zlib.pc" << 'ZEOF'
+          Name: zlib
+          Description: Android NDK zlib
+          Version: 1.3.1
+          Libs: -lz
+          ZEOF
+            meson setup "$BUILD_ROOT/build/libdrm-$abi" "$BUILD_ROOT/src/libdrm" \
+              --cross-file "$cf" \
+              --prefix "$BUILD_ROOT/prefix/$abi" \
+              --libdir lib \
+              -Ddefault_library=static \
+              -Db_staticpic=true \
+              -Dbuildtype=release \
+              -Dintel=disabled -Dradeon=disabled -Damdgpu=disabled \
+              -Dnouveau=disabled -Dvmwgfx=disabled -Domap=disabled \
+              -Dexynos=disabled -Dtegra=disabled -Detnaviv=disabled \
+              -Dfreedreno=enabled -Dvc4=disabled -Dman-pages=disabled \
+              -Dvalgrind=disabled -Dtests=false -Dcairo-tests=disabled \
+              -Dudev=false -Dinstall-test-programs=false
+            ninja -C "$BUILD_ROOT/build/libdrm-$abi" install
+          done
+
+          # 4. Build pure-C DRM/KMS HWC2 HAL -> vendor/lib64/hw/hwcomposer.qcom.so
+          "$TOOLCHAIN/aarch64-linux-android${ANDROID_API}-clang" \
+            -O2 -Wall -Wextra -Werror -fPIC -shared \
+            -I"$BUILD_ROOT/prefix/arm64/include" \
+            -I"$BUILD_ROOT/prefix/arm64/include/libdrm" \
+            -Wl,-soname,hwcomposer.qcom.so \
+            src/mainline/hwcomposer_drm.c \
+            "$BUILD_ROOT/prefix/arm64/lib/libdrm.a" \
+            -llog -lm -o vendor/lib64/hw/hwcomposer.qcom.so
+          "$TOOLCHAIN/llvm-nm" -D vendor/lib64/hw/hwcomposer.qcom.so | grep -q ' D HMI$'
+
+          # 5. Build upstream Mesa Freedreno + Turnip (arm64 + arm32)
+          for abi in arm64 arm32; do
+            cf="$BUILD_ROOT/cross/android-aarch64.ini"
+            libdir="lib64"
+            [ "$abi" = "arm32" ] && { cf="$BUILD_ROOT/cross/android-arm32.ini"; libdir="lib"; }
+
+            meson setup "$BUILD_ROOT/build/mesa-$abi" "$BUILD_ROOT/src/mesa" \
+              --cross-file "$cf" \
+              --prefix "$BUILD_ROOT/install/mesa-$abi" \
+              --libdir "$libdir" \
+              -Dbuildtype=release \
+              -Dplatforms=android \
+              -Dplatform-sdk-version=${ANDROID_API} \
+              -Dandroid-stub=true \
+              -Dandroid-strict=false \
+              -Dandroid-libbacktrace=disabled \
+              -Dgallium-drivers=freedreno \
+              -Dvulkan-drivers=freedreno \
+              -Dfreedreno-kmds=msm \
+              -Degl=enabled \
+              -Dgles1=enabled \
+              -Dgles2=enabled \
+              -Dglx=disabled \
+              -Dllvm=disabled \
+              -Dzstd=disabled \
+              -Dxmlconfig=disabled \
+              -Dcpp_rtti=false
+
+            ninja -C "$BUILD_ROOT/build/mesa-$abi" -j$(nproc) install
+
+            # Remove 4.14 Adreno EGL/Vulkan/adreno_utils blobs incompatible with mainline msm
+            rm -f \
+              "vendor/$libdir/libadreno_utils.so" \
+              "vendor/$libdir/libEGL_adreno.so" \
+              "vendor/$libdir/egl/libEGL_adreno.so" \
+              "vendor/$libdir/egl/libGLESv1_CM_adreno.so" \
+              "vendor/$libdir/egl/libGLESv2_adreno.so" \
+              "vendor/$libdir/egl/eglSubDriverAndroid.so" \
+              "vendor/$libdir/hw/vulkan.adreno.so"
+
+            mkdir -p "vendor/$libdir/egl" "vendor/$libdir/hw"
+            for base in libEGL libGLESv1_CM libGLESv2; do
+              src_so=$(find "$BUILD_ROOT/install/mesa-$abi/$libdir" -maxdepth 2 -name "${base}*.so" | head -n 1)
+              if [ -n "$src_so" ]; then
+                cp -L "$src_so" "vendor/$libdir/egl/${base}_mesa.so"
+                patchelf --set-soname "${base}_mesa.so" "vendor/$libdir/egl/${base}_mesa.so"
+              fi
+            done
+
+            find "$BUILD_ROOT/install/mesa-$abi/$libdir" -maxdepth 2 -name "*.so*" ! -name "libEGL*" ! -name "libGLES*" ! -name "libvulkan*" | while read -r f; do
+              [ -f "$f" ] || continue
+              cp -L "$f" "vendor/$libdir/$(basename "$f")"
+            done
+
+            vk_so=$(find "$BUILD_ROOT/install/mesa-$abi/$libdir" -maxdepth 2 -name "*vulkan_freedreno*.so" | head -n 1)
+            if [ -n "$vk_so" ]; then
+              cp -L "$vk_so" "vendor/$libdir/hw/vulkan.freedreno.so"
+              patchelf --set-soname "vulkan.freedreno.so" "vendor/$libdir/hw/vulkan.freedreno.so"
+            fi
+
+            "$TOOLCHAIN/llvm-strip" --strip-unneeded \
+              "vendor/$libdir/libion.so" \
+              "vendor/$libdir/libgallium_dri.so" \
+              "vendor/$libdir/egl/"*_mesa.so \
+              "vendor/$libdir/hw/vulkan.freedreno.so" 2>/dev/null || true
+          done
+
+          "$TOOLCHAIN/llvm-strip" --strip-unneeded \
+            vendor/lib64/libskeymaster4device.so \
+            vendor/lib64/hw/gatekeeper.mdfpp.so \
+            vendor/lib64/hw/hwcomposer.qcom.so
+
+          # 6. Create mainline firmware path symlinks inside vendor/firmware/{qcom,qca}
+          mkdir -p vendor/firmware/qcom vendor/firmware/qca
+          ln -sf ../a630_sqe.fw vendor/firmware/qcom/a630_sqe.fw
+          ln -sf ../a630_gmu.bin vendor/firmware/qcom/a630_gmu.bin
+          ln -sf ../crbtfw32.tlv vendor/firmware/qca/crbtfw32.tlv
+          ln -sf ../crnv32.bin vendor/firmware/qca/crnv32.bin
+
+          # 7. Sync config/vendor_fs_config and config/vendor_file_contexts for every new/built file
+          python3 - <<'PY'
+          import os, re
+          from pathlib import Path
+
+          fs_path = Path("config/vendor_fs_config")
+          fc_path = Path("config/vendor_file_contexts")
+
+          fs_raw = fs_path.read_text()
+          eol = "\r\n" if "\r\n" in fs_raw else "\n"
+          fs_entries = {}
+          for line in fs_raw.splitlines():
+              s = line.strip()
+              if not s:
+                  continue
+              parts = s.split()
+              fs_entries[parts[0]] = s
+
+          fc_lines = [l for l in fc_path.read_text().splitlines() if l.strip()]
+          fc_existing = {l.split()[0] for l in fc_lines}
+
+          def add_entry(rel, mode, uid, gid, ctx, target=None):
+              key = f"vendor/{rel}"
+              if target is not None:
+                  fs_entries[key] = f"{key} {uid} {gid} {mode} {target}"
+              else:
+                  fs_entries[key] = f"{key} {uid} {gid} {mode}"
+              fc_key = "/" + key.replace(".", r"\.")
+              if fc_key not in fc_existing:
+                  fc_lines.append(f"{fc_key} {ctx}")
+                  fc_existing.add(fc_key)
+
+          # Composer 2.4 service + rc
+          add_entry("bin/hw/android.hardware.graphics.composer@2.4-service", "0755", 0, 2000, "u:object_r:hal_graphics_composer_default_exec:s0")
+          add_entry("etc/init/android.hardware.graphics.composer@2.4-service.rc", "0644", 0, 0, "u:object_r:vendor_configs_file:s0")
+
+          # Firmware dirs & symlinks
+          for d in ("firmware/qcom", "firmware/qca"):
+              add_entry(d, "0755", 0, 2000, "u:object_r:vendor_firmware_file:s0")
+          for link, tgt in [
+              ("firmware/qcom/a630_sqe.fw", "../a630_sqe.fw"),
+              ("firmware/qcom/a630_gmu.bin", "../a630_gmu.bin"),
+              ("firmware/qca/crbtfw32.tlv", "../crbtfw32.tlv"),
+              ("firmware/qca/crnv32.bin", "../crnv32.bin"),
+          ]:
+              add_entry(link, "0644", 0, 0, "u:object_r:vendor_firmware_file:s0", target=tgt)
+
+          # Mesa + Vulkan SP-HAL libraries
+          for libdir in ("lib64", "lib"):
+              for rel in [
+                  f"{libdir}/libgallium_dri.so",
+                  f"{libdir}/egl/libEGL_mesa.so",
+                  f"{libdir}/egl/libGLESv1_CM_mesa.so",
+                  f"{libdir}/egl/libGLESv2_mesa.so",
+                  f"{libdir}/hw/vulkan.freedreno.so",
+              ]:
+                  if Path("vendor", rel).exists():
+                      add_entry(rel, "0644", 0, 0, "u:object_r:same_process_hal_file:s0")
+
+          # Catch any other newly generated files inside vendor/
+          for dirpath, dirnames, filenames in os.walk("vendor"):
+              for name in dirnames + filenames:
+                  full = Path(dirpath) / name
+                  rel = full.relative_to("vendor").as_posix()
+                  key = f"vendor/{rel}"
+                  if key not in fs_entries:
+                      if full.is_symlink():
+                          add_entry(rel, "0644", 0, 0, "u:object_r:vendor_file:s0", target=os.readlink(full))
+                      elif full.is_dir():
+                          add_entry(rel, "0755", 0, 2000, "u:object_r:vendor_file:s0")
+                      else:
+                          ctx = "u:object_r:same_process_hal_file:s0" if name.endswith(".so") else "u:object_r:vendor_file:s0"
+                          add_entry(rel, "0644", 0, 0, ctx)
+
+          fs_path.write_text(eol.join(fs_entries.values()) + eol)
+          fc_path.write_text("\n".join(fc_lines) + "\n")
+          print(f"Synced fs_config ({len(fs_entries)} entries) and file_contexts ({len(fc_lines)} entries)")
+          PY
+
+          ccache -s
 
       - name: Build vendor.img
         run: |
@@ -64,6 +380,7 @@ jobs:
           | Metric | Value |
           |---|---|
           | **Filesystem** | ${{ inputs.fs_type || 'erofs' }} |
+          | **Mesa / libdrm** | \`${{ env.MESA_TAG }}\` / \`${{ env.LIBDRM_TAG }}\` |
           | **Image Size** | $(( image_size / 1024 / 1024 )) MB (\`$image_size\` bytes) |
           | **Partition Limit** | $(( partition_size / 1024 / 1024 )) MB (\`$partition_size\` bytes) |
           | **Capacity Used** | **$usage_pct%** |

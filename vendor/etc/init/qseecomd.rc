@@ -1,12 +1,6 @@
-# Copyright (c) 2019 Qualcomm Technologies, Inc.
-# All Rights Reserved.
-# Confidential and Proprietary - Qualcomm Technologies, Inc.
-
-on init
-    wait /dev/qseecom
-    start vendor.qseecomd
-
+# Disabled on mainline Linux 7.3 (no /dev/qseecom char device)
 service vendor.qseecomd /vendor/bin/qseecomd
     class core
     user root
     group root
+    disabled

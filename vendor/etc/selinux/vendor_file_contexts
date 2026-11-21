@@ -1040,3 +1040,10 @@
 /sys/devices/platform/soc/3d00000\.qcom,kgsl-3d0/kgsl/kgsl-3d0/gpubusy u:object_r:vendor_sysfs_kgsl_gpubusy:s0
 /vendor/bin/hw/android\.hardware\.biometrics\.fingerprint@2\.1-service\.fpc u:object_r:hal_fingerprint_default_exec:s0
 /sys/devices/platform/soc/soc:qcom,svm_neuron_block/soc:qcom,svm_neuron_block:application/blk_name  u:object_r:vendor_sysfs_svm_neuron:s0
+
+# Mainline Linux 7.3 Mesa Freedreno / Turnip SP-HAL labels
+/(vendor|system/vendor)/lib(64)?/libgallium_dri\.so u:object_r:same_process_hal_file:s0
+/(vendor|system/vendor)/lib(64)?/egl/libEGL_mesa\.so u:object_r:same_process_hal_file:s0
+/(vendor|system/vendor)/lib(64)?/egl/libGLESv1_CM_mesa\.so u:object_r:same_process_hal_file:s0
+/(vendor|system/vendor)/lib(64)?/egl/libGLESv2_mesa\.so u:object_r:same_process_hal_file:s0
+/(vendor|system/vendor)/lib(64)?/hw/vulkan\.freedreno\.so u:object_r:same_process_hal_file:s0
